@@ -574,8 +574,28 @@ export default function App() {
   }
   function startRestTimer(exId) {
     const ex = DB[exId]
-    const isCompound = ['quads','hamstrings','glutes','back','chest'].includes(ex?.m)
-    setTimer({ secs: isCompound ? 75 : 60, maxSecs: isCompound ? 75 : 60, label: ex?.n || '' })
+    setTimer({ secs: 75, maxSecs: 75, label: ex?.n || '' })
+  }
+  function adjustRestTimer(secs) {
+    setTimer(t => t ? { ...t, secs, maxSecs: Math.max(t.maxSecs, secs) } : null)
+  }
+  function unlogSet(exId, setIdx) {
+    setSets(prev => {
+      const cur = prev[exId] ? [...prev[exId]] : []
+      if (!cur[setIdx]) return prev
+      const up = [...cur]; up[setIdx] = { weight:0, reps:0, done:false }
+      return { ...prev, [exId]: up }
+    })
+    setHist(prev => {
+      const sessions = [...(prev[exId] || [])]
+      const today = new Date().toISOString().split('T')[0]
+      const idx = sessions.findIndex(s => s.date === today)
+      if (idx < 0) return prev
+      const up = [...sessions]; const sa = [...(up[idx].sets || [])]; sa[setIdx] = null
+      up[idx] = { ...up[idx], sets: sa }
+      const nh = { ...prev, [exId]: up }
+      saveData('history', nh); return nh
+    })
   }
   function logSet(exId, setIdx, weight, reps) {
     setSets(prev => {
@@ -742,17 +762,28 @@ export default function App() {
       </div>
 
       {/* REST TIMER */}
-      {timer&&<div style={{position:'absolute',bottom:54,left:0,right:0,background:'white',borderTop:`2px solid ${AC}`,padding:'10px 16px',display:'flex',gap:12,alignItems:'center',animation:'slideUp .3s ease-out',zIndex:20,boxShadow:'0 -2px 12px rgba(0,0,0,0.08)'}}>
-        <div style={{flex:1}}>
-          <div style={{fontSize:11,color:SB,marginBottom:2}}>Rest — {timer.label}</div>
-          <div style={{fontSize:22,fontWeight:700,color:AC,fontVariantNumeric:'tabular-nums'}}>
-            {Math.floor(timer.secs/60)}:{String(timer.secs%60).padStart(2,'0')}
+      {timer&&<div style={{position:'absolute',bottom:54,left:0,right:0,background:'white',borderTop:`2px solid ${AC}`,padding:'10px 16px',display:'flex',flexDirection:'column',gap:8,animation:'slideUp .3s ease-out',zIndex:20,boxShadow:'0 -2px 12px rgba(0,0,0,0.08)'}}>
+        <div style={{display:'flex',alignItems:'center',gap:12}}>
+          <div style={{flex:1}}>
+            <div style={{fontSize:11,color:SB,marginBottom:2}}>Rest — {timer.label}</div>
+            <div style={{display:'flex',alignItems:'center',gap:10}}>
+              <button onClick={()=>adjustRestTimer(Math.max(0,timer.secs-15))} style={{width:28,height:28,borderRadius:8,background:C2,border:`1px solid ${BD}`,cursor:'pointer',fontSize:16,color:TX,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>−</button>
+              <div style={{fontSize:22,fontWeight:700,color:AC,fontVariantNumeric:'tabular-nums',minWidth:56,textAlign:'center'}}>
+                {Math.floor(timer.secs/60)}:{String(timer.secs%60).padStart(2,'0')}
+              </div>
+              <button onClick={()=>adjustRestTimer(timer.secs+15)} style={{width:28,height:28,borderRadius:8,background:C2,border:`1px solid ${BD}`,cursor:'pointer',fontSize:16,color:TX,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>+</button>
+            </div>
           </div>
-          <div style={{height:3,background:BD,borderRadius:2,marginTop:4}}>
-            <div style={{height:3,width:`${(timer.secs/timer.maxSecs)*100}%`,background:AC,borderRadius:2,transition:'width 1s linear'}}/>
-          </div>
+          <button onClick={()=>setTimer(null)} style={{background:'transparent',border:'none',cursor:'pointer',color:SB,fontSize:20,padding:4}}>✕</button>
         </div>
-        <button onClick={()=>setTimer(null)} style={{background:'transparent',border:'none',cursor:'pointer',color:SB,fontSize:20,padding:4}}>✕</button>
+        <div style={{display:'flex',gap:6}}>
+          {[['1:15',75],['2:00',120],['3:00',180]].map(([lbl,secs])=>(
+            <button key={secs} onClick={()=>adjustRestTimer(secs)} style={{flex:1,padding:'6px 0',borderRadius:8,border:`1px solid ${timer.secs===secs?AC:BD}`,background:timer.secs===secs?ACB:'transparent',color:timer.secs===secs?AC:SB,fontSize:12,fontWeight:600,cursor:'pointer'}}>{lbl}</button>
+          ))}
+        </div>
+        <div style={{height:3,background:BD,borderRadius:2}}>
+          <div style={{height:3,width:`${(timer.secs/timer.maxSecs)*100}%`,background:AC,borderRadius:2,transition:'width 1s linear'}}/>
+        </div>
       </div>}
 
       {/* BOTTOM NAV */}
@@ -770,6 +801,7 @@ export default function App() {
       {/* WEIGHT INPUT MODAL */}
       {modal?.type==='weight'&&(()=>{
         const {exId,setIdx}=modal; const ex=DB[exId]; const lastSet=getLastSession(exId)?.sets?.[setIdx]
+        const thisSet=sessionSets[exId]?.[setIdx]
         return(
           <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.35)',display:'flex',alignItems:'flex-end',zIndex:50}}
             onClick={e=>{if(e.target===e.currentTarget)setModal(null)}}>
@@ -795,6 +827,8 @@ export default function App() {
                 </div>
               ))}
               <button onClick={()=>{logSet(exId,setIdx,weightVal,repsVal);setModal(null)}} style={{width:'100%',height:52,borderRadius:14,background:AC,border:'none',cursor:'pointer',color:'white',fontSize:16,fontWeight:700}}>Log Set</button>
+              {thisSet?.done&&
+                <button onClick={()=>{unlogSet(exId,setIdx);setModal(null)}} style={{width:'100%',height:44,marginTop:10,borderRadius:14,background:'transparent',border:'none',cursor:'pointer',color:SB,fontSize:14,fontWeight:600}}>Unlog this set</button>}
             </div>
           </div>
         )
