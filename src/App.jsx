@@ -570,6 +570,8 @@ export default function App() {
   const [modal, setModal]         = useState(null)
   const [weekOffset, setWeekOffset] = useState(0)
   const [expandedEx, setExpandedEx] = useState(null)
+  const [chartMode, setChartMode]   = useState('weight')
+  const [confirmDelete, setConfirmDelete] = useState(null)
   const [weightVal, setWeightVal] = useState(0)
   const [repsVal, setRepsVal]     = useState(12)
   const [demoTab, setDemoTab]     = useState('how')
@@ -613,6 +615,17 @@ export default function App() {
   function getHistSet(exId, dateStr, setIdx) {
     const sess = hist[exId]?.find(s => s.date === dateStr)
     return sess?.sets?.[setIdx] || null
+  }
+  function deleteSession(exId, dateStr) {
+    setHist(prev => {
+      const sessions = (prev[exId] || []).filter(s => s.date !== dateStr)
+      const nh = { ...prev, [exId]: sessions }
+      saveData('history', nh); return nh
+    })
+    const todayStr = new Date().toISOString().split('T')[0]
+    if (dateStr === todayStr) {
+      setSets(prev => { const next = { ...prev }; delete next[exId]; return next })
+    }
   }
   function startRestTimer(exId) {
     const ex = DB[exId]
@@ -810,6 +823,12 @@ export default function App() {
 
         {view==='progress'&&(()=>{
           const exIds=Object.keys(hist).filter(id=>hist[id]?.length>0&&DB[id])
+          const weekDots=Object.entries(PROGRAM).map(([key,p])=>{
+            const dstr=dateStrForOffset(key,0)
+            const isFuture=dstr>todayStr
+            const done=!isFuture&&Object.values(hist).some(sessions=>sessions?.some(s=>s.date===dstr))
+            return { key, short:p.short, isFuture, done }
+          })
           if(!exIds.length)return(
             <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:40,height:300}}>
               <svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={BD} strokeWidth={1.5} strokeLinecap="round" style={{marginBottom:16}}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -818,19 +837,34 @@ export default function App() {
             </div>
           )
           return(<>
+            <div style={{background:CD,borderRadius:12,padding:'12px 14px',marginBottom:14,boxShadow:shadow}}>
+              <div style={{fontSize:12,color:SB,marginBottom:8}}>This week</div>
+              <div style={{display:'flex',gap:8}}>
+                {weekDots.map(d=>(
+                  <div key={d.key} style={{flex:1,textAlign:'center'}}>
+                    <div style={{width:'100%',height:6,borderRadius:3,background:d.done?GR:d.isFuture?C2:'#FCA5A5',marginBottom:4}}/>
+                    <div style={{fontSize:10,color:d.done?GR:SB,fontWeight:d.done?600:400}}>{d.short}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
             <div style={{fontSize:12,color:SB,marginBottom:12}}>Tap an exercise for full history</div>
             {exIds.map(exId=>{
               const ex=DB[exId]; const sessions=[...hist[exId]].sort((a,b)=>a.date<b.date?-1:1)
               const last=sessions[sessions.length-1]
               const lastW=last?.sets?.find(s=>s&&s.weight>0)?.weight
-              const chartPoints=sessions
+              const maxWeight=Math.max(0,...sessions.flatMap(s=>(s.sets||[]).filter(Boolean).map(x=>x.weight||0)))
+              const weightPoints=sessions
                 .map(s=>({date:s.date,weight:Math.max(0,...(s.sets||[]).filter(Boolean).map(x=>x.weight||0))}))
-                .filter(p=>p.weight>0)
-                .slice(-12)
+                .filter(p=>p.weight>0).slice(-12)
+              const volumePoints=sessions
+                .map(s=>({date:s.date,weight:(s.sets||[]).filter(Boolean).reduce((sum,x)=>sum+(x.weight||0)*(x.reps||0),0)}))
+                .filter(p=>p.weight>0).slice(-12)
+              const chartPoints=chartMode==='volume'?volumePoints:weightPoints
               const expanded=expandedEx===exId
               return(
                 <div key={exId} style={{background:CD,borderRadius:12,marginBottom:8,boxShadow:shadow,overflow:'hidden'}}>
-                  <div onClick={()=>setExpandedEx(expanded?null:exId)} style={{padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
+                  <div onClick={()=>{setExpandedEx(expanded?null:exId);setConfirmDelete(null)}} style={{padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
                     <div>
                       <div style={{fontSize:13,fontWeight:600,color:TX}}>{ex.n}</div>
                       <div style={{fontSize:11,color:SB,marginTop:2}}>{formatDateShort(last?.date)} · {sessions.length} session{sessions.length!==1?'s':''}</div>
@@ -842,16 +876,43 @@ export default function App() {
                   </div>
                   {expanded&&
                     <div style={{padding:'0 14px 14px'}}>
+                      <div style={{display:'flex',gap:6,marginBottom:8}}>
+                        {[['weight','Weight'],['volume','Volume']].map(([k,lbl])=>(
+                          <button key={k} onClick={()=>setChartMode(k)} style={{padding:'4px 12px',borderRadius:20,border:`1px solid ${chartMode===k?AC:BD}`,background:chartMode===k?ACB:'transparent',color:chartMode===k?AC:SB,fontSize:11,fontWeight:600,cursor:'pointer'}}>{lbl}</button>
+                        ))}
+                      </div>
                       {chartPoints.length>=2
                         ?<div style={{marginBottom:10}}><ProgressChart points={chartPoints}/></div>
                         :<div style={{fontSize:11,color:SB,marginBottom:10}}>Log a couple more sessions to see a trend</div>}
                       <div style={{borderTop:`1px solid ${BD}`,paddingTop:8}}>
                         {sessions.slice().reverse().map((s,i)=>{
                           const setsText=(s.sets||[]).filter(Boolean).map(x=>`${x.weight} lbs × ${x.reps}`).join('   ')
+                          const isPR=maxWeight>0&&(s.sets||[]).some(x=>x&&x.weight===maxWeight)
+                          const confirming=confirmDelete?.exId===exId&&confirmDelete?.date===s.date
                           return(
-                            <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderTop:i>0?`1px solid ${BD}`:undefined}}>
-                              <span style={{fontSize:11,color:SB,flexShrink:0,marginRight:10}}>{formatDateShort(s.date)}</span>
-                              <span style={{fontSize:12,color:TX,fontWeight:500,textAlign:'right'}}>{setsText||'—'}</span>
+                            <div key={i} style={{padding:'6px 0',borderTop:i>0?`1px solid ${BD}`:undefined}}>
+                              {confirming?(
+                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                                  <span style={{fontSize:12,color:'#DC2626',fontWeight:600}}>Delete {formatDateShort(s.date)}?</span>
+                                  <div style={{display:'flex',gap:6}}>
+                                    <button onClick={()=>setConfirmDelete(null)} style={{fontSize:12,color:SB,background:'transparent',border:'none',cursor:'pointer',padding:'4px 8px'}}>Cancel</button>
+                                    <button onClick={()=>{deleteSession(exId,s.date);setConfirmDelete(null)}} style={{fontSize:12,color:'white',background:'#DC2626',border:'none',borderRadius:6,cursor:'pointer',padding:'4px 10px',fontWeight:600}}>Delete</button>
+                                  </div>
+                                </div>
+                              ):(
+                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                                  <span style={{fontSize:11,color:SB,flexShrink:0,marginRight:10,display:'flex',alignItems:'center'}}>
+                                    {isPR&&<span style={{fontSize:9,fontWeight:700,color:'#B45309',background:'rgba(180,83,9,0.12)',padding:'1px 5px',borderRadius:8,marginRight:6}}>PR</span>}
+                                    {formatDateShort(s.date)}
+                                  </span>
+                                  <div style={{display:'flex',alignItems:'center',gap:8}}>
+                                    <span style={{fontSize:12,color:TX,fontWeight:500,textAlign:'right'}}>{setsText||'—'}</span>
+                                    <button onClick={()=>setConfirmDelete({exId,date:s.date})} aria-label="Delete session" style={{background:'transparent',border:'none',cursor:'pointer',color:SB,padding:2,display:'flex',flexShrink:0}}>
+                                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={SB} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )
                         })}
