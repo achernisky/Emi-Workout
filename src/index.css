@@ -1,0 +1,38 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body, #root {
+  height: 100%;
+  background: #F4F3FA;
+  overscroll-behavior: none;
+}
+
+::-webkit-scrollbar { display: none; }
+* { scrollbar-width: none; }
+
+@keyframes aCurl  { 0%,100%{transform:rotate(0deg)}  50%{transform:rotate(-115deg)} }
+@keyframes aPUp   { 0%,100%{transform:translateY(0)}  50%{transform:translateY(-26px)} }
+@keyframes aSq    { 0%,100%{transform:translateY(0)}  50%{transform:translateY(18px)} }
+@keyframes aLng   { 0%,100%{transform:translateY(0)}  50%{transform:translateY(14px)} }
+@keyframes aLR    { 0%,100%{transform:rotate(0deg)}   50%{transform:rotate(-65deg)} }
+@keyframes aPD    { 0%,100%{transform:rotate(0deg)}   50%{transform:rotate(76deg)} }
+@keyframes aHT    { 0%,100%{transform:translateY(8px)} 50%{transform:translateY(-8px)} }
+@keyframes aLC    { 0%,100%{transform:rotate(0deg)}   50%{transform:rotate(-120deg)} }
+@keyframes aCR    { 0%,100%{transform:rotate(0deg)}   50%{transform:rotate(-40deg)} }
+@keyframes aCF    { 0%,100%{transform:translateY(0)}  50%{transform:translateY(-12px)} }
+@keyframes aKB    { 0%,100%{transform:rotate(-5deg)}  50%{transform:rotate(72deg)} }
+@keyframes aLP    { 0%,100%{transform:translateY(-20px)} 50%{transform:translateY(8px)} }
+@keyframes aRW    { 0%,100%{transform:translateX(18px)} 50%{transform:translateX(-4px)} }
+@keyframes aFL    { 0%,100%{transform:rotate(-55deg)} 50%{transform:rotate(0deg)} }
+@keyframes aFR    { 0%,100%{transform:rotate(55deg)}  50%{transform:rotate(0deg)} }
+@keyframes aLE    { 0%,100%{transform:rotate(75deg)}  50%{transform:rotate(0deg)} }
+@keyframes aSM    { 0%,100%{transform:translateY(7px)} 50%{transform:translateY(-4px)} }
+@keyframes aAD    { 0%,100%{transform:rotate(25deg)}  50%{transform:rotate(3deg)} }
+@keyframes aAB    { 0%,100%{transform:rotate(3deg)}   50%{transform:rotate(25deg)} }
+@keyframes aPU    { 0%,100%{transform:rotate(0deg)}   50%{transform:rotate(28deg)} }
+@keyframes slideUp { from{transform:translateY(100%);opacity:0} to{transform:translateY(0);opacity:1} }
+@keyframes mdUp    { from{transform:translateY(25px);opacity:0} to{transform:translateY(0);opacity:1} }
