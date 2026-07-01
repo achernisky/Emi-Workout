@@ -692,9 +692,9 @@ export default function App() {
   const prog       = PROGRAM[day]
   const muscleData = prog?.muscles?.find(m => m.id === muscle)
   const shadow     = '0 1px 3px rgba(0,0,0,0.08),0 1px 2px rgba(0,0,0,0.05)'
-  const viewDateStr = dateStrForOffset(day, weekOffset)
   const todayStr     = new Date().toISOString().split('T')[0]
-  const isReadOnly   = viewDateStr !== todayStr
+  const isReadOnly   = weekOffset > 0
+  const viewDateStr  = isReadOnly ? dateStrForOffset(day, weekOffset - 1) : todayStr
 
   return (
     <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',background:BG,color:TX,fontFamily:'system-ui,-apple-system,sans-serif',overflow:'hidden'}}>
@@ -732,7 +732,7 @@ export default function App() {
             <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={SB} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <div style={{display:'flex',alignItems:'center',gap:8}}>
-            <span style={{fontSize:13,fontWeight:600,color:isReadOnly?SB:TX}}>{formatDateShort(viewDateStr)}</span>
+            <span style={{fontSize:13,fontWeight:600,color:isReadOnly?SB:TX}}>{isReadOnly?formatDateShort(viewDateStr):`Today · ${formatDateShort(todayStr)}`}</span>
             {isReadOnly&&<span style={{fontSize:10,fontWeight:600,color:AC,background:ACB,padding:'2px 7px',borderRadius:10}}>PAST</span>}
             {isReadOnly&&<button onClick={()=>setWeekOffset(0)} style={{background:'transparent',border:'none',cursor:'pointer',color:AC,fontSize:12,fontWeight:600,padding:0}}>Today</button>}
           </div>
