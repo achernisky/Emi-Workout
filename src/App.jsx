@@ -520,6 +520,42 @@ function getTodayDay() {
   if (d === 0) return 'sunday'
   return 'saturday'
 }
+const DAY_NUM = { tuesday:2, thursday:4, saturday:6, sunday:0 }
+function dateStrForOffset(dayKey, weeksBack) {
+  const targetDow = DAY_NUM[dayKey]
+  const now = new Date()
+  let diff = now.getDay() - targetDow
+  if (diff < 0) diff += 7
+  const d = new Date(now)
+  d.setDate(now.getDate() - diff - weeksBack * 7)
+  return d.toISOString().split('T')[0]
+}
+function formatDateShort(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00')
+  return d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
+}
+
+// ── PROGRESS CHART ───────────────────────────────────────────
+function ProgressChart({ points }) {
+  if (points.length < 2) return null
+  const W = 300, H = 70, PAD = 8
+  const weights = points.map(p => p.weight)
+  const min = Math.min(...weights), max = Math.max(...weights)
+  const range = max - min || 1
+  const stepX = (W - PAD * 2) / (points.length - 1)
+  const coords = points.map((p, i) => {
+    const x = PAD + i * stepX
+    const y = PAD + (H - PAD * 2) * (1 - (p.weight - min) / range)
+    return [x, y]
+  })
+  const path = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(' ')
+  return (
+    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:'block'}}>
+      <path d={path} fill="none" stroke={AC} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+      {coords.map((c, i) => <circle key={i} cx={c[0]} cy={c[1]} r={2.5} fill={AC}/>)}
+    </svg>
+  )
+}
 
 // ── APP ───────────────────────────────────────────────────────
 export default function App() {
@@ -532,6 +568,8 @@ export default function App() {
   const [hist, setHist]           = useState({})
   const [timer, setTimer]         = useState(null)
   const [modal, setModal]         = useState(null)
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [expandedEx, setExpandedEx] = useState(null)
   const [weightVal, setWeightVal] = useState(0)
   const [repsVal, setRepsVal]     = useState(12)
   const [demoTab, setDemoTab]     = useState('how')
@@ -571,6 +609,10 @@ export default function App() {
   }
   function getLastSession(exId) {
     const s = hist[exId]; return s?.length ? s[s.length - 1] : null
+  }
+  function getHistSet(exId, dateStr, setIdx) {
+    const sess = hist[exId]?.find(s => s.date === dateStr)
+    return sess?.sets?.[setIdx] || null
   }
   function startRestTimer(exId) {
     const ex = DB[exId]
@@ -626,6 +668,9 @@ export default function App() {
   const prog       = PROGRAM[day]
   const muscleData = prog?.muscles?.find(m => m.id === muscle)
   const shadow     = '0 1px 3px rgba(0,0,0,0.08),0 1px 2px rgba(0,0,0,0.05)'
+  const viewDateStr = dateStrForOffset(day, weekOffset)
+  const todayStr     = new Date().toISOString().split('T')[0]
+  const isReadOnly   = viewDateStr !== todayStr
 
   return (
     <div style={{position:'fixed',inset:0,display:'flex',flexDirection:'column',background:BG,color:TX,fontFamily:'system-ui,-apple-system,sans-serif',overflow:'hidden'}}>
@@ -646,7 +691,7 @@ export default function App() {
         {view==='workout'&&<div style={{padding:'4px 16px 8px',display:'flex',gap:6}}>
           {Object.entries(PROGRAM).map(([key,p])=>{
             const active=day===key
-            return <button key={key} onClick={()=>{setDay(key);setSwaps({});setSets({})}} style={{
+            return <button key={key} onClick={()=>{setDay(key);setSwaps({});setSets({});setWeekOffset(0)}} style={{
               flex:1,height:44,borderRadius:10,border:`1px solid ${active?AC:BD}`,cursor:'pointer',
               background:active?AC:'white',color:active?'white':SB,display:'flex',flexDirection:'column',
               alignItems:'center',justifyContent:'center',gap:1,transition:'all .15s',
@@ -655,6 +700,23 @@ export default function App() {
               <span style={{fontSize:9,opacity:.8}}>{p.loc==='gym'?'GYM':'HOME'}</span>
             </button>
           })}
+        </div>}
+        {view==='workout'&&<div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'0 16px 8px',gap:8}}>
+          <button onClick={()=>setWeekOffset(o=>o+1)} aria-label="Previous week" style={{
+            width:30,height:30,borderRadius:8,background:'white',border:`1px solid ${BD}`,cursor:'pointer',
+            display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={SB} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            <span style={{fontSize:13,fontWeight:600,color:isReadOnly?SB:TX}}>{formatDateShort(viewDateStr)}</span>
+            {isReadOnly&&<span style={{fontSize:10,fontWeight:600,color:AC,background:ACB,padding:'2px 7px',borderRadius:10}}>PAST</span>}
+            {isReadOnly&&<button onClick={()=>setWeekOffset(0)} style={{background:'transparent',border:'none',cursor:'pointer',color:AC,fontSize:12,fontWeight:600,padding:0}}>Today</button>}
+          </div>
+          <button onClick={()=>setWeekOffset(o=>Math.max(0,o-1))} disabled={weekOffset===0} aria-label="Next week" style={{
+            width:30,height:30,borderRadius:8,background:'white',border:`1px solid ${BD}`,cursor:weekOffset===0?'default':'pointer',
+            display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,opacity:weekOffset===0?0.35:1}}>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={SB} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
         </div>}
         {view==='workout'&&<div style={{display:'flex',gap:6,padding:'0 16px 10px',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
           {prog?.muscles?.map(m=>{
@@ -699,7 +761,7 @@ export default function App() {
                         <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
                       </svg>
                     </button>
-                    {ex.alts?.length>0&&<button onClick={()=>setModal({type:'swap',sk,muscleId:ex.m,slotIdx,loc:prog.loc})} style={{
+                    {ex.alts?.length>0&&!isReadOnly&&<button onClick={()=>setModal({type:'swap',sk,muscleId:ex.m,slotIdx,loc:prog.loc})} style={{
                       width:32,height:32,borderRadius:8,background:C2,border:`1px solid ${BD}`,
                       cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}
                       aria-label="Swap exercise">
@@ -712,6 +774,19 @@ export default function App() {
                 {Array.from({length:numSets},(_,si)=>{
                   const thisSet=exSets[si]||{weight:0,reps:0,done:false}
                   const lastSet=lastSess?.sets?.[si]; const done=thisSet.done
+                  if (isReadOnly) {
+                    const pastSet = getHistSet(exId, viewDateStr, si)
+                    return(
+                      <div key={si} style={{display:'flex',gap:8,alignItems:'center',padding:'6px 0',borderTop:si>0?`1px solid ${BD}`:undefined}}>
+                        <div style={{width:26,height:26,borderRadius:7,background:pastSet?.weight?AC:C2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:600,color:pastSet?.weight?'white':SB,flexShrink:0}}>{si+1}</div>
+                        <div style={{flex:1,background:pastSet?.weight?GRB:C2,border:`1px solid ${pastSet?.weight?GR:BD}`,borderRadius:8,padding:'6px 10px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                          <span style={{fontSize:13,color:pastSet?.weight?GR:SB,fontWeight:pastSet?.weight?600:400}}>
+                            {pastSet?.weight?`${pastSet.weight} lbs × ${pastSet.reps} reps`:'Not logged'}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  }
                   return(
                     <div key={si} style={{display:'flex',gap:8,alignItems:'center',padding:'6px 0',borderTop:si>0?`1px solid ${BD}`:undefined}}>
                       <div onClick={()=>startRestTimer(exId)} role="button" aria-label="Start rest timer" style={{width:26,height:26,borderRadius:7,background:done?AC:C2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:600,color:done?'white':SB,flexShrink:0,cursor:'pointer'}}>{si+1}</div>
@@ -743,17 +818,45 @@ export default function App() {
             </div>
           )
           return(<>
-            <div style={{fontSize:12,color:SB,marginBottom:12}}>Last logged weight per exercise</div>
+            <div style={{fontSize:12,color:SB,marginBottom:12}}>Tap an exercise for full history</div>
             {exIds.map(exId=>{
-              const ex=DB[exId]; const sessions=hist[exId]; const last=sessions[sessions.length-1]
+              const ex=DB[exId]; const sessions=[...hist[exId]].sort((a,b)=>a.date<b.date?-1:1)
+              const last=sessions[sessions.length-1]
               const lastW=last?.sets?.find(s=>s&&s.weight>0)?.weight
+              const chartPoints=sessions
+                .map(s=>({date:s.date,weight:Math.max(0,...(s.sets||[]).filter(Boolean).map(x=>x.weight||0))}))
+                .filter(p=>p.weight>0)
+                .slice(-12)
+              const expanded=expandedEx===exId
               return(
-                <div key={exId} style={{background:CD,borderRadius:12,padding:'10px 14px',marginBottom:8,display:'flex',justifyContent:'space-between',alignItems:'center',boxShadow:shadow}}>
-                  <div>
-                    <div style={{fontSize:13,fontWeight:600,color:TX}}>{ex.n}</div>
-                    <div style={{fontSize:11,color:SB,marginTop:2}}>{last?.date} · {sessions.length} session{sessions.length!==1?'s':''}</div>
+                <div key={exId} style={{background:CD,borderRadius:12,marginBottom:8,boxShadow:shadow,overflow:'hidden'}}>
+                  <div onClick={()=>setExpandedEx(expanded?null:exId)} style={{padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center',cursor:'pointer'}}>
+                    <div>
+                      <div style={{fontSize:13,fontWeight:600,color:TX}}>{ex.n}</div>
+                      <div style={{fontSize:11,color:SB,marginTop:2}}>{formatDateShort(last?.date)} · {sessions.length} session{sessions.length!==1?'s':''}</div>
+                    </div>
+                    <div style={{display:'flex',alignItems:'center',gap:8}}>
+                      {lastW&&<div style={{fontSize:15,fontWeight:700,color:AC}}>{lastW} lbs</div>}
+                      <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={SB} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" style={{transform:expanded?'rotate(180deg)':'none',transition:'transform .15s'}}><polyline points="6 9 12 15 18 9"/></svg>
+                    </div>
                   </div>
-                  {lastW&&<div style={{fontSize:15,fontWeight:700,color:AC}}>{lastW} lbs</div>}
+                  {expanded&&
+                    <div style={{padding:'0 14px 14px'}}>
+                      {chartPoints.length>=2
+                        ?<div style={{marginBottom:10}}><ProgressChart points={chartPoints}/></div>
+                        :<div style={{fontSize:11,color:SB,marginBottom:10}}>Log a couple more sessions to see a trend</div>}
+                      <div style={{borderTop:`1px solid ${BD}`,paddingTop:8}}>
+                        {sessions.slice().reverse().map((s,i)=>{
+                          const setsText=(s.sets||[]).filter(Boolean).map(x=>`${x.weight} lbs × ${x.reps}`).join('   ')
+                          return(
+                            <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'6px 0',borderTop:i>0?`1px solid ${BD}`:undefined}}>
+                              <span style={{fontSize:11,color:SB,flexShrink:0,marginRight:10}}>{formatDateShort(s.date)}</span>
+                              <span style={{fontSize:12,color:TX,fontWeight:500,textAlign:'right'}}>{setsText||'—'}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>}
                 </div>
               )
             })}
