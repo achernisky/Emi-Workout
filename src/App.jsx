@@ -565,6 +565,7 @@ export default function App() {
   const [sessionSets, setSets]    = useState({})
   const [defaults, setDefaults]   = useState({})
   const [swaps, setSwaps]         = useState({})
+  const [addedEx, setAddedEx]     = useState({})
   const [hist, setHist]           = useState({})
   const [timer, setTimer]         = useState(null)
   const [modal, setModal]         = useState(null)
@@ -677,6 +678,16 @@ export default function App() {
   function makeDefault(sk, exId) {
     const nd = { ...defaults, [sk]: exId }; setDefaults(nd); saveData('defaults', nd)
   }
+  function addExercise(sk, exId) {
+    setAddedEx(prev => {
+      const cur = prev[sk] || []
+      if (cur.includes(exId)) return prev
+      return { ...prev, [sk]: [...cur, exId] }
+    })
+  }
+  function removeAddedExercise(sk, exId) {
+    setAddedEx(prev => ({ ...prev, [sk]: (prev[sk] || []).filter(id => id !== exId) }))
+  }
 
   const prog       = PROGRAM[day]
   const muscleData = prog?.muscles?.find(m => m.id === muscle)
@@ -704,7 +715,7 @@ export default function App() {
         {view==='workout'&&<div style={{padding:'4px 16px 8px',display:'flex',gap:6}}>
           {Object.entries(PROGRAM).map(([key,p])=>{
             const active=day===key
-            return <button key={key} onClick={()=>{setDay(key);setSwaps({});setSets({});setWeekOffset(0)}} style={{
+            return <button key={key} onClick={()=>{setDay(key);setSwaps({});setSets({});setWeekOffset(0);setAddedEx({})}} style={{
               flex:1,height:44,borderRadius:10,border:`1px solid ${active?AC:BD}`,cursor:'pointer',
               background:active?AC:'white',color:active?'white':SB,display:'flex',flexDirection:'column',
               alignItems:'center',justifyContent:'center',gap:1,transition:'all .15s',
@@ -820,6 +831,75 @@ export default function App() {
             </div>
           )
         })}
+
+        {view==='workout'&&!isReadOnly&&muscleData&&(()=>{
+          const curSk=`${day}_${muscle}`
+          const addedIds=addedEx[curSk]||[]
+          return(<>
+            {addedIds.map(exId=>{
+              const ex=DB[exId]; if(!ex)return null
+              const numSets=3; const exSets=sessionSets[exId]||[]; const lastSess=getLastSession(exId)
+              return(
+                <div key={exId} style={{marginBottom:12}}>
+                  <div style={{height:1,background:BD,margin:'0 0 12px'}}/>
+                  <div style={{background:CD,borderRadius:14,padding:'12px 14px',boxShadow:shadow,border:`1px dashed ${AC}50`}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+                      <div style={{flex:1,marginRight:8}}>
+                        <span style={{fontSize:9,fontWeight:700,color:AC,background:ACB,padding:'1px 6px',borderRadius:8}}>ADDED</span>
+                        <div style={{fontSize:15,fontWeight:600,lineHeight:1.3,color:TX,marginTop:4}}>{ex.n}</div>
+                        <div style={{display:'flex',gap:6,marginTop:4,flexWrap:'wrap'}}>
+                          <span style={{background:C2,padding:'2px 7px',borderRadius:5,fontSize:11,color:SB}}>{ex.eq}</span>
+                          <span style={{fontSize:11,color:SB}}>{numSets} sets</span>
+                        </div>
+                      </div>
+                      <div style={{display:'flex',gap:5,flexShrink:0}}>
+                        <button onClick={()=>setModal({type:'demo',exId})} style={{
+                          width:32,height:32,borderRadius:8,background:ACB,border:`1px solid ${AC}30`,
+                          cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}
+                          aria-label="How to do this exercise">
+                          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={AC} strokeWidth={2} strokeLinecap="round">
+                            <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                          </svg>
+                        </button>
+                        <button onClick={()=>removeAddedExercise(curSk,exId)} style={{
+                          width:32,height:32,borderRadius:8,background:'transparent',border:`1px solid ${BD}`,
+                          cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center'}}
+                          aria-label="Remove exercise">
+                          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={SB} strokeWidth={2} strokeLinecap="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                    {Array.from({length:numSets},(_,si)=>{
+                      const thisSet=exSets[si]||{weight:0,reps:0,done:false}
+                      const lastSet=lastSess?.sets?.[si]; const done=thisSet.done
+                      return(
+                        <div key={si} style={{display:'flex',gap:8,alignItems:'center',padding:'6px 0',borderTop:si>0?`1px solid ${BD}`:undefined}}>
+                          <div onClick={()=>startRestTimer(exId)} role="button" aria-label="Start rest timer" style={{width:26,height:26,borderRadius:7,background:done?AC:C2,display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:600,color:done?'white':SB,flexShrink:0,cursor:'pointer'}}>{si+1}</div>
+                          <button onClick={()=>{
+                            setWeightVal(done?thisSet.weight:(lastSet?.weight||0))
+                            setRepsVal(done?thisSet.reps:(lastSet?.reps||12))
+                            setModal({type:'weight',exId,setIdx:si})
+                          }} style={{flex:1,background:done?GRB:C2,border:`1px solid ${done?GR:BD}`,borderRadius:8,padding:'6px 10px',cursor:'pointer',textAlign:'left',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                            <span style={{fontSize:13,color:done?GR:SB,fontWeight:done?600:400}}>
+                              {done?`${thisSet.weight} lbs × ${thisSet.reps} reps`:(lastSet?.weight?`Last: ${lastSet.weight} lbs`:'Tap to log')}
+                            </span>
+                            {done&&<svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke={GR} strokeWidth={2.5} strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+            <button onClick={()=>setModal({type:'add',muscleId:muscle,loc:prog.loc})} style={{
+              width:'100%',height:44,borderRadius:12,border:`1.5px dashed ${AC}60`,background:'transparent',
+              color:AC,fontSize:13,fontWeight:600,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:6,marginTop:4,marginBottom:8}}>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={AC} strokeWidth={2.5} strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Exercise
+            </button>
+          </>)
+        })()}
 
         {view==='progress'&&(()=>{
           const exIds=Object.keys(hist).filter(id=>hist[id]?.length>0&&DB[id])
@@ -1077,6 +1157,51 @@ export default function App() {
                           <button onClick={()=>{setSwaps(p=>({...p,[sk]:exId}));setModal(null)}} style={{flex:1,height:36,borderRadius:10,border:`1px solid ${BD}`,background:'white',cursor:'pointer',color:TX,fontSize:13,fontWeight:500}}>Use today</button>
                           <button onClick={()=>{makeDefault(sk,exId);setModal(null)}} style={{flex:1,height:36,borderRadius:10,border:`1px solid ${AC}`,background:ACB,cursor:'pointer',color:AC,fontSize:13,fontWeight:500}}>Make default</button>
                         </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {modal?.type==='add'&&(()=>{
+        const {muscleId,loc}=modal
+        const curSk=`${day}_${muscleId}`
+        const onScreenIds=new Set([
+          ...(muscleData?.slots?.map((_,idx)=>getExId(day,muscleId,idx))||[]),
+          ...(addedEx[curSk]||[])
+        ])
+        const options=Object.keys(DB).filter(id=>DB[id].m===muscleId&&DB[id].loc.includes(loc)&&!onScreenIds.has(id))
+        return(
+          <div style={{position:'absolute',inset:0,background:'rgba(0,0,0,0.35)',display:'flex',alignItems:'flex-end',zIndex:50}}
+            onClick={e=>{if(e.target===e.currentTarget)setModal(null)}}>
+            <div style={{background:'white',borderRadius:'20px 20px 0 0',width:'100%',maxHeight:'80%',overflow:'hidden',display:'flex',flexDirection:'column',animation:'mdUp .25s ease-out'}}>
+              <div style={{padding:'16px 20px 10px',display:'flex',justifyContent:'space-between',alignItems:'center',flexShrink:0}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:700,color:TX}}>Add exercise</div>
+                  <div style={{fontSize:12,color:SB,marginTop:2}}>{muscleData?.label} · {loc==='gym'?'Gym':'Home'} · today only</div>
+                </div>
+                <button onClick={()=>setModal(null)} style={{background:'transparent',border:'none',cursor:'pointer',color:SB,fontSize:22}}>✕</button>
+              </div>
+              <div style={{overflowY:'auto',padding:'0 20px 32px',WebkitOverflowScrolling:'touch'}}>
+                {options.length===0
+                  ?<div style={{color:SB,fontSize:13,textAlign:'center',padding:'24px 0'}}>Every {loc} exercise for this muscle is already on today's list.</div>
+                  :options.map(exId=>{
+                    const ex=DB[exId]
+                    return(
+                      <div key={exId} style={{background:C2,borderRadius:12,padding:'12px 14px',marginBottom:8}}>
+                        <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:8}}>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:14,fontWeight:600,color:TX}}>{ex.n}</div>
+                            <div style={{fontSize:11,color:SB,marginTop:2}}>{ex.eq} · {ex.pri.join(', ')}</div>
+                          </div>
+                          <button onClick={()=>setModal({type:'demo',exId})} style={{background:'transparent',border:'none',cursor:'pointer',color:SB,padding:2}}>
+                            <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke={SB} strokeWidth={2} strokeLinecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                          </button>
+                        </div>
+                        <button onClick={()=>{addExercise(curSk,exId);setModal(null)}} style={{width:'100%',height:36,borderRadius:10,border:`1px solid ${AC}`,background:ACB,cursor:'pointer',color:AC,fontSize:13,fontWeight:500}}>Add to today</button>
                       </div>
                     )
                   })}
