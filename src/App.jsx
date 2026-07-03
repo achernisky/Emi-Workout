@@ -614,17 +614,18 @@ function polarToCartesian(cx, cy, r, angleDeg) {
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
 }
 function arcPath(cx, cy, rOuter, rInner, startAngle, endAngle) {
-  const a = Math.min(endAngle, startAngle + 359.99)
-  const startOuter = polarToCartesian(cx, cy, rOuter, a)
-  const endOuter = polarToCartesian(cx, cy, rOuter, startAngle)
-  const startInner = polarToCartesian(cx, cy, rInner, startAngle)
-  const endInner = polarToCartesian(cx, cy, rInner, a)
-  const largeArc = a - startAngle <= 180 ? 0 : 1
+  const span = Math.min(endAngle - startAngle, 359.99)
+  const end = startAngle + span
+  const largeArc = span > 180 ? 1 : 0
+  const p1 = polarToCartesian(cx, cy, rOuter, startAngle)
+  const p2 = polarToCartesian(cx, cy, rOuter, end)
+  const p3 = polarToCartesian(cx, cy, rInner, end)
+  const p4 = polarToCartesian(cx, cy, rInner, startAngle)
   return [
-    `M ${startOuter.x} ${startOuter.y}`,
-    `A ${rOuter} ${rOuter} 0 ${largeArc} 0 ${endOuter.x} ${endOuter.y}`,
-    `L ${endInner.x} ${endInner.y}`,
-    `A ${rInner} ${rInner} 0 ${largeArc} 1 ${startInner.x} ${startInner.y}`,
+    `M ${p1.x} ${p1.y}`,
+    `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${p2.x} ${p2.y}`,
+    `L ${p3.x} ${p3.y}`,
+    `A ${rInner} ${rInner} 0 ${largeArc} 0 ${p4.x} ${p4.y}`,
     'Z',
   ].join(' ')
 }
@@ -657,10 +658,10 @@ function MuscleVolumeDonut({ data }) {
   )
 }
 function VolumeBarChart({ points }) {
-  if (points.length < 2) return null
+  if (points.length < 1) return null
   const W = 300, H = 80, PAD = 4, gap = 3
   const max = Math.max(...points.map(p => p[1]))
-  const barW = (W - PAD * 2 - gap * (points.length - 1)) / points.length
+  const barW = Math.min(34, (W - PAD * 2 - gap * (points.length - 1)) / points.length)
   return (
     <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:'block'}}>
       {points.map(([date, vol], i) => {
@@ -1052,7 +1053,7 @@ export default function App() {
               <div style={{background:CD,borderRadius:12,padding:'14px',marginBottom:14,boxShadow:shadow}}>
                 <div style={{fontSize:12,color:SB,marginBottom:10}}>Volume by muscle group · all time</div>
                 <MuscleVolumeDonut data={muscleVolume}/>
-                {dailyPoints.length>=2&&<>
+                {dailyPoints.length>=1&&<>
                   <div style={{fontSize:12,color:SB,margin:'16px 0 8px'}}>Total volume by day · last {dailyPoints.length}</div>
                   <VolumeBarChart points={dailyPoints}/>
                 </>}
