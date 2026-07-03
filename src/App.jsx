@@ -673,28 +673,22 @@ function MuscleVolumeDonut({ data }) {
 }
 function VolumeBarChart({ points }) {
   if (points.length < 1) return null
-  const W = 300, H = 110, PAD = 4, gap = 3, LABEL_H = 16, DATE_H = 16
-  const barAreaH = H - LABEL_H - DATE_H
   const max = Math.max(...points.map(p => p[1]))
-  const barW = Math.min(34, (W - PAD * 2 - gap * (points.length - 1)) / points.length)
   const fmt = v => v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : String(Math.round(v))
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:'block'}}>
-      {points.map(([date, vol], i) => {
-        const h = max ? (vol / max) * barAreaH : 0
-        const x = PAD + i * (barW + gap)
-        const y = LABEL_H + barAreaH - h
-        const cx = x + barW / 2
+    <div style={{display:'flex',alignItems:'flex-end',gap:8,overflowX:'auto',paddingBottom:2,WebkitOverflowScrolling:'touch'}}>
+      {points.map(([date, vol]) => {
+        const h = max ? Math.max((vol / max) * 70, 4) : 4
         const dLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month:'numeric', day:'numeric' })
         return (
-          <g key={date}>
-            <text x={cx} y={LABEL_H - 5} textAnchor="middle" fontSize={8} fontWeight={700} fill={SB}>{fmt(vol)}</text>
-            <rect x={x} y={y} width={barW} height={Math.max(h, 1)} rx={2} fill={AC}/>
-            <text x={cx} y={H - 4} textAnchor="middle" fontSize={7} fill={SB}>{dLabel}</text>
-          </g>
+          <div key={date} style={{display:'flex',flexDirection:'column',alignItems:'center',flex:'0 0 auto',width:36}}>
+            <div style={{fontSize:10,fontWeight:700,color:SB,marginBottom:4,whiteSpace:'nowrap'}}>{fmt(vol)}</div>
+            <div style={{width:26,height:h,background:AC,borderRadius:4}}/>
+            <div style={{fontSize:9,color:SB,marginTop:5,whiteSpace:'nowrap'}}>{dLabel}</div>
+          </div>
         )
       })}
-    </svg>
+    </div>
   )
 }
 
