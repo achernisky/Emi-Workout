@@ -43,10 +43,25 @@ async function loadData() {
 async function saveData(key, val) {
   localStorage.setItem(key === 'history' ? LS_H : LS_D, JSON.stringify(val))
   try {
+    const { data: row } = await supabase.from('workout_data').select('data').eq('id', key).maybeSingle()
+    const serverVal = row?.data || {}
+    const merged = key === 'history' ? mergeHist(serverVal, val) : { ...serverVal, ...val }
+    localStorage.setItem(key === 'history' ? LS_H : LS_D, JSON.stringify(merged))
     await supabase.from('workout_data').upsert({
-      id: key, data: val, updated_at: new Date().toISOString(),
+      id: key, data: merged, updated_at: new Date().toISOString(),
     })
   } catch { /* data already in localStorage */ }
+}
+function mergeHist(serverHist, localHist) {
+  const merged = {}
+  const allExIds = new Set([...Object.keys(serverHist), ...Object.keys(localHist)])
+  for (const exId of allExIds) {
+    const byDate = {}
+    for (const s of (serverHist[exId] || [])) byDate[s.date] = s
+    for (const s of (localHist[exId] || []))  byDate[s.date] = s
+    merged[exId] = Object.values(byDate).sort((a, b) => a.date < b.date ? -1 : 1)
+  }
+  return merged
 }
 
 // ── VIDEO DEMO COMPONENT ─────────────────────────────────────
@@ -617,12 +632,16 @@ export default function App() {
     const sess = hist[exId]?.find(s => s.date === dateStr)
     return sess?.sets?.[setIdx] || null
   }
-  function deleteSession(exId, dateStr) {
-    setHist(prev => {
-      const sessions = (prev[exId] || []).filter(s => s.date !== dateStr)
-      const nh = { ...prev, [exId]: sessions }
-      saveData('history', nh); return nh
-    })
+  async function deleteSession(exId, dateStr) {
+    const { data: row } = await supabase.from('workout_data').select('data').eq('id', 'history').maybeSingle()
+    const freshHist = row?.data || hist
+    const sessions = (freshHist[exId] || []).filter(s => s.date !== dateStr)
+    const nh = { ...freshHist, [exId]: sessions }
+    setHist(nh)
+    localStorage.setItem(LS_H, JSON.stringify(nh))
+    try {
+      await supabase.from('workout_data').upsert({ id: 'history', data: nh, updated_at: new Date().toISOString() })
+    } catch { /* data already in localStorage */ }
     const todayStr = new Date().toISOString().split('T')[0]
     if (dateStr === todayStr) {
       setSets(prev => { const next = { ...prev }; delete next[exId]; return next })
