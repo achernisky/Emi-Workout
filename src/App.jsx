@@ -551,24 +551,55 @@ function formatDateShort(dateStr) {
 }
 
 // ── PROGRESS CHART ───────────────────────────────────────────
-function ProgressChart({ points }) {
+const CHART_SERIES = [
+  { key:'weight', label:'Weight', color:AC },
+  { key:'volume', label:'Volume', color:'#D97706' },
+  { key:'reps',   label:'Reps',   color:'#0891B2' },
+]
+function OverloadChart({ sessions }) {
+  const points = sessions.map(s => {
+    const validSets = (s.sets || []).filter(x => x && x.weight > 0)
+    if (!validSets.length) return null
+    const top = validSets.reduce((a, b) => (b.weight > a.weight ? b : a), validSets[0])
+    const volume = validSets.reduce((sum, x) => sum + x.weight * x.reps, 0)
+    return { date: s.date, weight: top.weight, reps: top.reps, volume }
+  }).filter(Boolean)
   if (points.length < 2) return null
-  const W = 300, H = 70, PAD = 8
-  const weights = points.map(p => p.weight)
-  const min = Math.min(...weights), max = Math.max(...weights)
-  const range = max - min || 1
+
+  const W = 300, H = 110, PAD = 8
   const stepX = (W - PAD * 2) / (points.length - 1)
-  const coords = points.map((p, i) => {
-    const x = PAD + i * stepX
-    const y = PAD + (H - PAD * 2) * (1 - (p.weight - min) / range)
-    return [x, y]
-  })
-  const path = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(' ')
+  const buildCoords = (key) => {
+    const vals = points.map(p => p[key])
+    const min = Math.min(...vals), max = Math.max(...vals), range = (max - min) || 1
+    return vals.map((v, i) => {
+      const x = PAD + i * stepX
+      const y = PAD + (H - PAD * 2) * (1 - (v - min) / range)
+      return [x, y]
+    })
+  }
   return (
-    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:'block'}}>
-      <path d={path} fill="none" stroke={AC} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
-      {coords.map((c, i) => <circle key={i} cx={c[0]} cy={c[1]} r={2.5} fill={AC}/>)}
-    </svg>
+    <div>
+      <div style={{display:'flex',gap:14,marginBottom:6}}>
+        {CHART_SERIES.map(s => (
+          <div key={s.key} style={{display:'flex',alignItems:'center',gap:4}}>
+            <div style={{width:8,height:8,borderRadius:4,background:s.color}}/>
+            <span style={{fontSize:10,color:SB,fontWeight:600}}>{s.label}</span>
+          </div>
+        ))}
+      </div>
+      <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:'block'}}>
+        {CHART_SERIES.map(s => {
+          const coords = buildCoords(s.key)
+          const path = coords.map((c, i) => `${i === 0 ? 'M' : 'L'}${c[0].toFixed(1)},${c[1].toFixed(1)}`).join(' ')
+          return (
+            <g key={s.key}>
+              <path d={path} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"/>
+              {coords.map((c, i) => <circle key={i} cx={c[0]} cy={c[1]} r={2} fill={s.color}/>)}
+            </g>
+          )
+        })}
+      </svg>
+    </div>
   )
 }
 
@@ -586,7 +617,7 @@ export default function App() {
   const [modal, setModal]         = useState(null)
   const [weekOffset, setWeekOffset] = useState(0)
   const [expandedEx, setExpandedEx] = useState(null)
-  const [chartMode, setChartMode]   = useState('weight')
+  const [chartRange, setChartRange] = useState('all')
   const [confirmDelete, setConfirmDelete] = useState(null)
   const [weightVal, setWeightVal] = useState(0)
   const [repsVal, setRepsVal]     = useState(12)
@@ -953,13 +984,10 @@ export default function App() {
               const last=sessions[sessions.length-1]
               const lastW=last?.sets?.find(s=>s&&s.weight>0)?.weight
               const maxWeight=Math.max(0,...sessions.flatMap(s=>(s.sets||[]).filter(Boolean).map(x=>x.weight||0)))
-              const weightPoints=sessions
-                .map(s=>({date:s.date,weight:Math.max(0,...(s.sets||[]).filter(Boolean).map(x=>x.weight||0))}))
-                .filter(p=>p.weight>0).slice(-12)
-              const volumePoints=sessions
-                .map(s=>({date:s.date,weight:(s.sets||[]).filter(Boolean).reduce((sum,x)=>sum+(x.weight||0)*(x.reps||0),0)}))
-                .filter(p=>p.weight>0).slice(-12)
-              const chartPoints=chartMode==='volume'?volumePoints:weightPoints
+              const rangeStart={'4w':(()=>{const d=new Date();d.setDate(d.getDate()-28);return d.toISOString().split('T')[0]})(),
+                                 '3m':(()=>{const d=new Date();d.setDate(d.getDate()-90);return d.toISOString().split('T')[0]})(),
+                                 'all':'0000-00-00'}[chartRange]
+              const rangedSessions=sessions.filter(s=>s.date>=rangeStart)
               const expanded=expandedEx===exId
               return(
                 <div key={exId} style={{background:CD,borderRadius:12,marginBottom:8,boxShadow:shadow,overflow:'hidden'}}>
@@ -976,13 +1004,13 @@ export default function App() {
                   {expanded&&
                     <div style={{padding:'0 14px 14px'}}>
                       <div style={{display:'flex',gap:6,marginBottom:8}}>
-                        {[['weight','Weight'],['volume','Volume']].map(([k,lbl])=>(
-                          <button key={k} onClick={()=>setChartMode(k)} style={{padding:'4px 12px',borderRadius:20,border:`1px solid ${chartMode===k?AC:BD}`,background:chartMode===k?ACB:'transparent',color:chartMode===k?AC:SB,fontSize:11,fontWeight:600,cursor:'pointer'}}>{lbl}</button>
+                        {[['4w','4 Weeks'],['3m','3 Months'],['all','All Time']].map(([k,lbl])=>(
+                          <button key={k} onClick={()=>setChartRange(k)} style={{padding:'4px 12px',borderRadius:20,border:`1px solid ${chartRange===k?AC:BD}`,background:chartRange===k?ACB:'transparent',color:chartRange===k?AC:SB,fontSize:11,fontWeight:600,cursor:'pointer'}}>{lbl}</button>
                         ))}
                       </div>
-                      {chartPoints.length>=2
-                        ?<div style={{marginBottom:10}}><ProgressChart points={chartPoints}/></div>
-                        :<div style={{fontSize:11,color:SB,marginBottom:10}}>Log a couple more sessions to see a trend</div>}
+                      {rangedSessions.filter(s=>(s.sets||[]).some(x=>x&&x.weight>0)).length>=2
+                        ?<div style={{marginBottom:10}}><OverloadChart sessions={rangedSessions}/></div>
+                        :<div style={{fontSize:11,color:SB,marginBottom:10}}>Log a couple more sessions in this range to see a trend</div>}
                       <div style={{borderTop:`1px solid ${BD}`,paddingTop:8}}>
                         {sessions.slice().reverse().map((s,i)=>{
                           const setsText=(s.sets||[]).filter(Boolean).map(x=>`${x.weight} lbs × ${x.reps}`).join('   ')
