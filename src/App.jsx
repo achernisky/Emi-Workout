@@ -16,37 +16,43 @@ const BD  = '#DDD9F0'
 // ── SUPABASE STORAGE ─────────────────────────────────────────
 const LS_H = 'emi_wt_hist_v1'
 const LS_D = 'emi_wt_def_v1'
+const LS_S = 'emi_wt_skip_v1'
 
 async function loadData() {
   try {
     const { data, error } = await supabase
       .from('workout_data')
       .select('id, data')
-      .in('id', ['history', 'defaults'])
+      .in('id', ['history', 'defaults', 'skipped'])
     if (error) throw error
-    const result = { hist: {}, defaults: {} }
+    const result = { hist: {}, defaults: {}, skipped: {} }
     data?.forEach(row => {
       if (row.id === 'history')  result.hist     = row.data || {}
       if (row.id === 'defaults') result.defaults = row.data || {}
+      if (row.id === 'skipped')  result.skipped  = row.data || {}
     })
     if (Object.keys(result.hist).length)     localStorage.setItem(LS_H, JSON.stringify(result.hist))
     if (Object.keys(result.defaults).length) localStorage.setItem(LS_D, JSON.stringify(result.defaults))
+    if (Object.keys(result.skipped).length)  localStorage.setItem(LS_S, JSON.stringify(result.skipped))
     return result
   } catch {
     return {
       hist:     JSON.parse(localStorage.getItem(LS_H) || '{}'),
       defaults: JSON.parse(localStorage.getItem(LS_D) || '{}'),
+      skipped:  JSON.parse(localStorage.getItem(LS_S) || '{}'),
     }
   }
 }
 
+function lsKeyFor(key) { return key === 'history' ? LS_H : key === 'skipped' ? LS_S : LS_D }
+
 async function saveData(key, val) {
-  localStorage.setItem(key === 'history' ? LS_H : LS_D, JSON.stringify(val))
+  localStorage.setItem(lsKeyFor(key), JSON.stringify(val))
   try {
     const { data: row } = await supabase.from('workout_data').select('data').eq('id', key).maybeSingle()
     const serverVal = row?.data || {}
     const merged = key === 'history' ? mergeHist(serverVal, val) : { ...serverVal, ...val }
-    localStorage.setItem(key === 'history' ? LS_H : LS_D, JSON.stringify(merged))
+    localStorage.setItem(lsKeyFor(key), JSON.stringify(merged))
     await supabase.from('workout_data').upsert({
       id: key, data: merged, updated_at: new Date().toISOString(),
     })
@@ -549,6 +555,14 @@ function formatDateShort(dateStr) {
   const d = new Date(dateStr + 'T00:00:00')
   return d.toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' })
 }
+function getWeekRange(date) {
+  const d = new Date(date)
+  const dow = d.getDay()
+  const diffToMonday = dow === 0 ? 6 : dow - 1
+  const monday = new Date(d); monday.setDate(d.getDate() - diffToMonday)
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6)
+  return { start: monday.toISOString().split('T')[0], end: sunday.toISOString().split('T')[0] }
+}
 
 // ── PROGRESS CHART ───────────────────────────────────────────
 const CHART_SERIES = [
@@ -659,15 +673,26 @@ function MuscleVolumeDonut({ data }) {
 }
 function VolumeBarChart({ points }) {
   if (points.length < 1) return null
-  const W = 300, H = 80, PAD = 4, gap = 3
+  const W = 300, H = 110, PAD = 4, gap = 3, LABEL_H = 16, DATE_H = 16
+  const barAreaH = H - LABEL_H - DATE_H
   const max = Math.max(...points.map(p => p[1]))
   const barW = Math.min(34, (W - PAD * 2 - gap * (points.length - 1)) / points.length)
+  const fmt = v => v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1) + 'k' : String(Math.round(v))
   return (
     <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:'block'}}>
       {points.map(([date, vol], i) => {
-        const h = max ? (vol / max) * (H - PAD * 2) : 0
-        const x = PAD + i * (barW + gap), y = H - PAD - h
-        return <rect key={date} x={x} y={y} width={barW} height={Math.max(h,1)} rx={2} fill={AC}/>
+        const h = max ? (vol / max) * barAreaH : 0
+        const x = PAD + i * (barW + gap)
+        const y = LABEL_H + barAreaH - h
+        const cx = x + barW / 2
+        const dLabel = new Date(date + 'T00:00:00').toLocaleDateString('en-US', { month:'numeric', day:'numeric' })
+        return (
+          <g key={date}>
+            <text x={cx} y={LABEL_H - 5} textAnchor="middle" fontSize={8} fontWeight={700} fill={SB}>{fmt(vol)}</text>
+            <rect x={x} y={y} width={barW} height={Math.max(h, 1)} rx={2} fill={AC}/>
+            <text x={cx} y={H - 4} textAnchor="middle" fontSize={7} fill={SB}>{dLabel}</text>
+          </g>
+        )
       })}
     </svg>
   )
@@ -683,6 +708,7 @@ export default function App() {
   const [swaps, setSwaps]         = useState({})
   const [addedEx, setAddedEx]     = useState({})
   const [hist, setHist]           = useState({})
+  const [skipped, setSkipped]     = useState({})
   const [timer, setTimer]         = useState(null)
   const [modal, setModal]         = useState(null)
   const [weekOffset, setWeekOffset] = useState(0)
@@ -695,9 +721,10 @@ export default function App() {
   const timerRef = useRef(null)
 
   useEffect(() => {
-    loadData().then(({ hist: h, defaults: d }) => {
+    loadData().then(({ hist: h, defaults: d, skipped: s }) => {
       if (Object.keys(h).length)     setHist(h)
       if (Object.keys(d).length)     setDefaults(d)
+      if (Object.keys(s).length)     setSkipped(s)
     })
   }, [])
 
@@ -808,6 +835,14 @@ export default function App() {
   function removeAddedExercise(sk, exId) {
     setAddedEx(prev => ({ ...prev, [sk]: (prev[sk] || []).filter(id => id !== exId) }))
   }
+  function skipDay(dateStr) {
+    const ns = { ...skipped, [dateStr]: true }
+    setSkipped(ns); saveData('skipped', ns)
+  }
+  function unskipDay(dateStr) {
+    const ns = { ...skipped }; delete ns[dateStr]
+    setSkipped(ns); saveData('skipped', ns)
+  }
 
   const prog       = PROGRAM[day]
   const muscleData = prog?.muscles?.find(m => m.id === muscle)
@@ -862,6 +897,21 @@ export default function App() {
             <svg width={14} height={14} viewBox="0 0 24 24" fill="none" stroke={SB} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>}
+        {view==='workout'&&(()=>{
+          const isSkipped=!!skipped[viewDateStr]
+          return(
+            <div style={{display:'flex',justifyContent:'center',padding:'0 16px 10px'}}>
+              <button onClick={()=>isSkipped?unskipDay(viewDateStr):skipDay(viewDateStr)} style={{
+                display:'flex',alignItems:'center',gap:5,background:isSkipped?'#F1F5F9':'transparent',
+                border:`1px solid ${isSkipped?'#94A3B8':BD}`,borderRadius:20,padding:'4px 12px',
+                cursor:'pointer',color:isSkipped?'#475569':SB,fontSize:11,fontWeight:600}}>
+                {isSkipped
+                  ?<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke="#475569" strokeWidth={2.5} strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>Rest day — tap to undo</>
+                  :<><svg width={12} height={12} viewBox="0 0 24 24" fill="none" stroke={SB} strokeWidth={2} strokeLinecap="round"><circle cx="12" cy="12" r="9"/><path d="M9 12h6"/></svg>Mark as rest day</>}
+              </button>
+            </div>
+          )
+        })()}
         {view==='workout'&&<div style={{display:'flex',gap:6,padding:'0 16px 10px',overflowX:'auto',WebkitOverflowScrolling:'touch'}}>
           {prog?.muscles?.map(m=>{
             const active=muscle===m.id
@@ -1023,11 +1073,14 @@ export default function App() {
 
         {view==='progress'&&(()=>{
           const exIds=Object.keys(hist).filter(id=>hist[id]?.length>0&&DB[id])
+          const { start:wkStart, end:wkEnd } = getWeekRange(new Date())
           const weekDots=Object.entries(PROGRAM).map(([key,p])=>{
             const dstr=dateStrForOffset(key,0)
             const isFuture=dstr>todayStr
-            const done=!isFuture&&Object.values(hist).some(sessions=>sessions?.some(s=>s.date===dstr))
-            return { key, short:p.short, isFuture, done }
+            const isSkipped=!!skipped[dstr]
+            const slotExIds=p.muscles.flatMap(m=>m.slots.map((_,idx)=>getExId(key,m.id,idx)))
+            const done=slotExIds.some(exId=>(hist[exId]||[]).some(s=>s.date>=wkStart&&s.date<=wkEnd))
+            return { key, short:p.short, isFuture, done, isSkipped }
           })
           const muscleVolume={}, dailyVolume={}
           Object.entries(hist).forEach(([exId,sessions])=>{
@@ -1063,8 +1116,8 @@ export default function App() {
               <div style={{display:'flex',gap:8}}>
                 {weekDots.map(d=>(
                   <div key={d.key} style={{flex:1,textAlign:'center'}}>
-                    <div style={{width:'100%',height:6,borderRadius:3,background:d.done?GR:d.isFuture?C2:'#FCA5A5',marginBottom:4}}/>
-                    <div style={{fontSize:10,color:d.done?GR:SB,fontWeight:d.done?600:400}}>{d.short}</div>
+                    <div style={{width:'100%',height:6,borderRadius:3,background:d.done?GR:d.isSkipped?'#94A3B8':d.isFuture?C2:'#FCA5A5',marginBottom:4}}/>
+                    <div style={{fontSize:10,color:d.done?GR:d.isSkipped?'#64748B':SB,fontWeight:d.done?600:400}}>{d.short}{d.isSkipped?' 💤':''}</div>
                   </div>
                 ))}
               </div>
