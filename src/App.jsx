@@ -603,6 +603,75 @@ function OverloadChart({ sessions }) {
   )
 }
 
+// ── OVERVIEW WIDGETS ─────────────────────────────────────────
+const MUSCLE_COLORS = {
+  chest:'#7C3AED', back:'#0891B2', shoulders:'#D97706', biceps:'#059669',
+  triceps:'#DB2777', quads:'#4F46E5', hamstrings:'#CA8A04', glutes:'#DC2626',
+  calves:'#0D9488', abs:'#EA580C', abductor:'#94A3B8', adductor:'#94A3B8',
+}
+function polarToCartesian(cx, cy, r, angleDeg) {
+  const rad = (angleDeg - 90) * Math.PI / 180
+  return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) }
+}
+function arcPath(cx, cy, rOuter, rInner, startAngle, endAngle) {
+  const a = Math.min(endAngle, startAngle + 359.99)
+  const startOuter = polarToCartesian(cx, cy, rOuter, a)
+  const endOuter = polarToCartesian(cx, cy, rOuter, startAngle)
+  const startInner = polarToCartesian(cx, cy, rInner, startAngle)
+  const endInner = polarToCartesian(cx, cy, rInner, a)
+  const largeArc = a - startAngle <= 180 ? 0 : 1
+  return [
+    `M ${startOuter.x} ${startOuter.y}`,
+    `A ${rOuter} ${rOuter} 0 ${largeArc} 0 ${endOuter.x} ${endOuter.y}`,
+    `L ${endInner.x} ${endInner.y}`,
+    `A ${rInner} ${rInner} 0 ${largeArc} 1 ${startInner.x} ${startInner.y}`,
+    'Z',
+  ].join(' ')
+}
+function MuscleVolumeDonut({ data }) {
+  const entries = Object.entries(data).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1])
+  const total = entries.reduce((s, [, v]) => s + v, 0)
+  if (!total) return null
+  const cx = 60, cy = 60, rOuter = 56, rInner = 34
+  let angle = 0
+  const slices = entries.map(([m, v]) => {
+    const pct = v / total, start = angle, end = angle + pct * 360
+    angle = end
+    return { m, v, pct, start, end, color: MUSCLE_COLORS[m] || SB }
+  })
+  return (
+    <div style={{display:'flex',alignItems:'center',gap:16}}>
+      <svg width={120} height={120} viewBox="0 0 120 120" style={{flexShrink:0}}>
+        {slices.map(s => <path key={s.m} d={arcPath(cx, cy, rOuter, rInner, s.start, s.end)} fill={s.color}/>)}
+      </svg>
+      <div style={{flex:1,display:'flex',flexDirection:'column',gap:5,minWidth:0}}>
+        {slices.map(s => (
+          <div key={s.m} style={{display:'flex',alignItems:'center',gap:6}}>
+            <div style={{width:8,height:8,borderRadius:2,background:s.color,flexShrink:0}}/>
+            <span style={{fontSize:11,color:TX,textTransform:'capitalize',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.m}</span>
+            <span style={{fontSize:11,color:SB,fontWeight:600,flexShrink:0}}>{Math.round(s.pct*100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+function VolumeBarChart({ points }) {
+  if (points.length < 2) return null
+  const W = 300, H = 80, PAD = 4, gap = 3
+  const max = Math.max(...points.map(p => p[1]))
+  const barW = (W - PAD * 2 - gap * (points.length - 1)) / points.length
+  return (
+    <svg width="100%" height={H} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{display:'block'}}>
+      {points.map(([date, vol], i) => {
+        const h = max ? (vol / max) * (H - PAD * 2) : 0
+        const x = PAD + i * (barW + gap), y = H - PAD - h
+        return <rect key={date} x={x} y={y} width={barW} height={Math.max(h,1)} rx={2} fill={AC}/>
+      })}
+    </svg>
+  )
+}
+
 // ── APP ───────────────────────────────────────────────────────
 export default function App() {
   const [day, setDay]             = useState(getTodayDay)
@@ -959,6 +1028,18 @@ export default function App() {
             const done=!isFuture&&Object.values(hist).some(sessions=>sessions?.some(s=>s.date===dstr))
             return { key, short:p.short, isFuture, done }
           })
+          const muscleVolume={}, dailyVolume={}
+          Object.entries(hist).forEach(([exId,sessions])=>{
+            const ex=DB[exId]; if(!ex)return
+            sessions.forEach(s=>{
+              const vol=(s.sets||[]).filter(Boolean).reduce((a,x)=>a+(x.weight||0)*(x.reps||0),0)
+              if(vol>0){
+                muscleVolume[ex.m]=(muscleVolume[ex.m]||0)+vol
+                dailyVolume[s.date]=(dailyVolume[s.date]||0)+vol
+              }
+            })
+          })
+          const dailyPoints=Object.entries(dailyVolume).sort((a,b)=>a[0]<b[0]?-1:1).slice(-14)
           if(!exIds.length)return(
             <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:40,height:300}}>
               <svg width={48} height={48} viewBox="0 0 24 24" fill="none" stroke={BD} strokeWidth={1.5} strokeLinecap="round" style={{marginBottom:16}}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
@@ -967,6 +1048,15 @@ export default function App() {
             </div>
           )
           return(<>
+            {Object.keys(muscleVolume).length>0&&
+              <div style={{background:CD,borderRadius:12,padding:'14px',marginBottom:14,boxShadow:shadow}}>
+                <div style={{fontSize:12,color:SB,marginBottom:10}}>Volume by muscle group · all time</div>
+                <MuscleVolumeDonut data={muscleVolume}/>
+                {dailyPoints.length>=2&&<>
+                  <div style={{fontSize:12,color:SB,margin:'16px 0 8px'}}>Total volume by day · last {dailyPoints.length}</div>
+                  <VolumeBarChart points={dailyPoints}/>
+                </>}
+              </div>}
             <div style={{background:CD,borderRadius:12,padding:'12px 14px',marginBottom:14,boxShadow:shadow}}>
               <div style={{fontSize:12,color:SB,marginBottom:8}}>This week</div>
               <div style={{display:'flex',gap:8}}>
